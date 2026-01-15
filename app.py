@@ -1,15 +1,17 @@
 import streamlit as st
 import google.generativeai as genai
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
+from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from io import BytesIO
 import re
+import asyncio
+import edge_tts
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
-    page_title="Magis AI - Kanisius",
-    page_icon="🎓",
+    page_title="Magis AI - Jesuit Order Edition",
+    page_icon="🕊️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -19,8 +21,42 @@ if 'result_text' not in st.session_state:
     st.session_state.result_text = ""
 if 'topic_context' not in st.session_state:
     st.session_state.topic_context = ""
+if 'full_audio_bytes' not in st.session_state:
+    st.session_state.full_audio_bytes = None
 
-# --- 2. KAMUS BAHASA & PROMPT (IGNATIUS + CANISIUS) ---
+# --- 2. FUNGSI AUDIO ---
+async def generate_audio_stream(text, voice, rate):
+    try:
+        communicate = edge_tts.Communicate(text, voice, rate=rate)
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+        return audio_data
+    except Exception as e:
+        return None
+
+def get_audio(text, lang_code, gender, speed_pct):
+    if not text or not text.strip(): return None
+    clean_text_audio = re.sub(r'[#*_`\-]', '', text)
+    clean_text_audio = re.sub(r'\|', ' ', clean_text_audio)
+    
+    if lang_code == "ID":
+        voice = "id-ID-ArdiNeural" if gender == "Pria" else "id-ID-GadisNeural"
+    else:
+        voice = "en-US-ChristopherNeural" if gender == "Male" else "en-US-AriaNeural"
+    
+    rate_str = f"{int(speed_pct)}%"
+    if speed_pct >= 0: rate_str = f"+{rate_str}"
+    
+    try:
+        audio_bytes = asyncio.run(generate_audio_stream(clean_text_audio, voice, rate_str))
+        return audio_bytes
+    except Exception as e:
+        st.error(f"Audio Error: {e}")
+        return None
+
+# --- 3. KAMUS NILAI & PROMPT ---
 TRANS = {
     "ID": {
         "title_sub": "Mitra Diskresi Guru Ignasian",
@@ -28,125 +64,105 @@ TRANS = {
         "lbl_lang": "Bahasa",
         "lbl_theme": "Tampilan",
         "lbl_tone": "Gaya Bahasa AI",
-        "opt_tone": ["Reflektif (Spirit Jesuit)", "Akademis (4C+1L)", "Pastoral (Cura Personalis)"],
+        "opt_tone": ["Reflektif (Spirit Jesuit)", "Akademis (St. Petrus Kanisius)", "Pastoral (Cura Personalis)"],
         "lbl_key": "Kunci Akses Google",
-        "lbl_model": "Model Kecerdasan (Ganti jika Error)",
+        "lbl_model": "Model Kecerdasan",
+        "lbl_voice_set": "Pengaturan Suara (Audio)",
+        "lbl_gender": "Suara Narator",
+        "lbl_speed": "Kecepatan Bicara",
         "lbl_menu": "Pilih Modul Formasi",
-        "menu_opt": ["1. Konteks (Cura Personalis)", "2. Desain RPP (IPP & 4C+1L)", "3. Refleksi (Examen & Magis)", "4. Asisten Makalah (Ignatius & Kanisius)"],
+        "menu_opt": ["1. Konteks (Cura Personalis & UAP)", "2. Desain RPP (IPP & UAP)", "3. Refleksi (Examen & Magis)", "4. Asisten Makalah (Jesuit Scholar)"],
         "btn_analyze": "Analisis Profil Siswa",
         "btn_rpp": "Desain Pembelajaran PPI",
         "btn_reflect": "Mulai Diskresi",
         "btn_makalah": "Susun Draf Makalah",
-        "btn_dl_word": "📥 Unduh Dokumen (.docx) - Format Rapi",
-        "loading": "✨ Sedang menimbang (Diskresi) dalam terang roh...",
+        "btn_dl_word": "📥 Unduh Dokumen (.docx)",
+        "loading": "✨ Sedang menimbang (Diskresi) dalam terang UAP & Magis...",
         "empty_warning": "⚠️ Mohon isi data untuk memulai proses.",
-        "key_warning": "🔒 Masukkan Google API Key di sidebar kiri untuk memulai.",
-        
-        # --- MODUL 1: CURA PERSONALIS ---
-        "m1_t": "📘 Konteks (Cura Personalis)", 
+        "key_warning": "🔒 Kunci Akses (API Key) diperlukan. Masukkan di menu sebelah kiri.",
+        "key_missing_alert": "⚠️ **PERHATIAN:** API Key belum dimasukkan. Silakan buka Sidebar (kiri) bagian 'Kunci Akses Google' agar AI dapat bekerja.",
+        "core_values": """
+        **CORE PARADIGM (THE JESUIT WAY):**
+        1. **Universal Apostolic Preferences (UAP):** Menunjukkan Jalan kepada Allah, Berjalan bersama yang Terpinggirkan, Menemani Orang Muda, Merawat Rumah Kita Bersama.
+        2. **Values (4C + 1L):** Competence, Conscience, Compassion, Commitment, Leadership.
+        3. **Magis:** Selalu mencari yang 'lebih' demi kemuliaan Allah (AMDG).
+        """,
+        "m1_t": "📘 Konteks (Cura Personalis & UAP)", 
         "m1_l1": "Profil Unik Siswa / Dinamika Kelas:", 
-        "m1_p1": "Ceritakan karakter, latar belakang, atau tantangan siswa (akademis/perilaku)...", 
+        "m1_p1": "Ceritakan karakter, latar belakang, atau tantangan siswa...", 
         "m1_l2": "Fokus Masalah / Situasi:", 
-        "m1_sys": """PERAN: Pendidik Ignasian yang menerapkan 'Cura Personalis' (perhatian pribadi).
-        TUGAS: Analisis profil siswa melalui lensa 4C + 1L.
-        FORMAT:
-        1. **Diagnosa Situasi:** Apa yang terjadi pada batin siswa? (Lihat secara utuh).
-        2. **Strategi Pendampingan:** Pendekatan personal apa yang bisa dilakukan?
-        3. **Integrasi Nilai:** Fokuskan pada Conscience & Compassion.
-        4. **Spirit Persevera:** Bagaimana guru bisa sabar mendampingi?
-        Gunakan Tabel untuk memetakan Masalah vs Solusi.""",
-        
-        # --- MODUL 2: IPP (PPI) ---
-        "m2_t": "📙 Desain Pembelajaran (PPI)", 
+        "m1_sys": "ROLE: Pendidik Ignasian (Cura Personalis). Analisis siswa dengan lensa 4C+1L dan UAP.",
+        "m2_t": "📙 Desain Pembelajaran (IPP & UAP)", 
         "m2_l1": "Topik / Materi Pembelajaran:", 
         "m2_l2": "Durasi & Target Formasi:", 
-        "m2_sys": """PERAN: Perancang Kurikulum Ignasian (IPP).
-        TUGAS: Buat RPP yang membentuk siswa menjadi Leader yang memiliki 4C.
-        SIKLUS IPP:
-        1. **Context:** Siapa pembelajarnya?
-        2. **Experience:** Aktivitas (Competence & Compassion).
-        3. **Reflection:** Mengasah Hati Nurani (Conscience). Pertanyaan makna.
-        4. **Action:** Aksi nyata (Leadership).
-        5. **Evaluation:** Evaluasi pemahaman & hati.
-        Gunakan Tabel.""",
-        
-        # --- MODUL 3: EXAMEN ---
+        "m2_sys": "ROLE: Perancang IPP (Ignatian Pedagogical Paradigm). Siklus: Context-Experience-Reflection-Action-Evaluation.",
         "m3_t": "📗 Refleksi Batin (Examen)", 
         "m3_l1": "Peristiwa / Kegelisahan / Topik Refleksi:", 
-        "m3_sys": """PERAN: Pembimbing Rohani dengan semangat St. Ignatius Loyola.
-        TUGAS: Pandu Examen Conscientiae (Pemeriksaan Batin).
-        LANGKAH:
-        1. **Gratitude (Syukur):** Menyadari kehadiran Tuhan.
-        2. **Grace (Mohon Terang):** Memohon kejernihan.
-        3. **Review (Tinjauan):** Melihat kembali peristiwa.
-        4. **Repent (Penyesalan):** Mohon ampun atas kekurangan kasih.
-        5. **Resolve (Niat):** Langkah Magis ke depan.""",
-
-        # --- MODUL 4: MAKALAH (IGNATIUS & KANISIUS) ---
+        "m3_sys": "ROLE: Pembimbing Rohani (Examen). Pandu 5 langkah (Syukur, Mohon Terang, Tinjauan, Sesal, Niat).",
         "m4_t": "📘 Asisten Makalah (Jesuit Scholar)", 
         "m4_l1": "Topik / Judul Makalah:", 
-        "m4_l2": "Argumen Utama (Diskresi & Kompetensi):", 
-        "m4_p2": "Contoh: Teknologi harus diarahkan untuk memuliakan Tuhan dan melayani sesama (AMDG)...",
-        "m4_sys": """PERAN: Cendekiawan Jesuit yang memadukan visi Visioner St. Ignatius Loyola (Pendiri, Ahli Diskresi) dan Intelektualitas St. Petrus Kanisius (Doktor Gereja, Edukator).
-        
-        TUGAS: Buat makalah yang cerdas (Competence), bijaksana (Conscience), dan memuliakan Tuhan (AMDG).
-        
-        STRUKTUR & ISI:
-        1. **Judul:** Mencerminkan kedalaman akademis dan rohani.
-        2. **Pendahuluan:** Konteks masalah.
-        3. **Pembahasan (Dialog Iman & Ilmu):**
-           - Gunakan logika deduktif yang kuat (Ciri St. Kanisius).
-           - Masukkan unsur **DISKRESI** (Penimbangan Roh): Mengapa argumen ini dipilih? Apakah ini membawa kebaikan lebih besar (Magis)? (Ciri St. Ignatius).
-           - Terapkan prinsip **Tantum Quantum** (Sejauh mana hal ini berguna bagi tujuan akhir).
-        4. **Kesimpulan:** Arahkan pada 'Ad Maiorem Dei Gloriam' (Demi Kemuliaan Allah yang Lebih Besar) dan pelayanan sesama.
-        
-        GAYA BAHASA: Naratif, mengalir, persuasif, namun tetap rendah hati.""",
+        "m4_l2": "Argumen Utama (Tesis):",
+        "m4_p2": "Contoh: Teknologi AI harus diarahkan untuk memuliakan Tuhan (AMDG)...",
+        "m4_cat_lbl": "Pilih Kedalaman Analisis:",
+        "m4_cat_opt": ["Ringkas (Poin Utama 4C)", "Standar (Esai Akademis)", "Mendalam (Diskresi Teologis & UAP)"],
+        "m4_prompt_ringkas": "STYLE: To the point, Bullet Points. FOCUS: Identifikasi elemen Competence, Conscience, Compassion.",
+        "m4_prompt_standar": "STYLE: Akademis, Naratif, Argumentatif (Style St. Petrus Kanisius). FOCUS: Bangun argumen logis + moral.",
+        "m4_prompt_mendalam": "STYLE: Filosofis, Teologis, Reflektif Mendalam (Style St. Ignatius). FOCUS: Diskresi mendalam, Tantum Quantum.",
     },
     "EN": {
-        "title_sub": "Ignatian Pedagogical Partner",
+        "title_sub": "Ignatian Teacher's Discernment Partner",
         "sidebar_settings": "Settings",
         "lbl_lang": "Language",
         "lbl_theme": "Theme",
-        "lbl_tone": "AI Tone & Style",
-        "opt_tone": ["Reflective (Jesuit Spirit)", "Academic (4C+1L)", "Pastoral (Cura Personalis)"],
+        "lbl_tone": "AI Tone",
+        "opt_tone": ["Reflective (Jesuit Spirit)", "Academic (Canisius)", "Pastoral (Cura Personalis)"],
         "lbl_key": "Google Access Key",
-        "lbl_model": "Intelligence Model (Change if Error)",
+        "lbl_model": "AI Model",
+        "lbl_voice_set": "Audio Settings",
+        "lbl_gender": "Narrator Voice",
+        "lbl_speed": "Speech Speed",
         "lbl_menu": "Select Formation Module",
-        "menu_opt": ["1. Context (Cura Personalis)", "2. Lesson Design (IPP & 4C+1L)", "3. Reflection (Examen & Magis)", "4. Paper Assistant (Ignatius & Canisius)"],
-        "btn_analyze": "Analyze Student Profile",
-        "btn_rpp": "Design IPP Lesson",
+        "menu_opt": ["1. Context (Cura Personalis)", "2. Lesson Design (IPP & UAP)", "3. Reflection (Examen)", "4. Paper Assistant (Jesuit Scholar)"],
+        "btn_analyze": "Analyze Profile",
+        "btn_rpp": "Design Lesson",
         "btn_reflect": "Start Discernment",
         "btn_makalah": "Draft Paper",
-        "btn_dl_word": "📥 Download Document (.docx)",
-        "loading": "✨ Discerning in the spirit of Magis...",
+        "btn_dl_word": "📥 Download Word",
+        "loading": "✨ Discerning with Magis & UAP Spirit...",
         "empty_warning": "⚠️ Please provide input.",
-        "key_warning": "🔒 Please enter API Key in sidebar to start.",
-        
+        "key_warning": "🔒 API Key required. Please check sidebar.",
+        "key_missing_alert": "⚠️ **ATTENTION:** API Key is missing. Please enter it in the Sidebar (left) to proceed.",
+        "core_values": """
+        **CORE PARADIGM (THE JESUIT WAY):**
+        1. **UAP:** Showing the Way to God, Walking with the Excluded, Journeying with Youth, Caring for our Common Home.
+        2. **Values:** Competence, Conscience, Compassion, Commitment, Leadership.
+        3. **Magis:** AMDG.
+        """,
         "m1_t": "📘 Context (Cura Personalis)", 
         "m1_l1": "Student Profile:", 
-        "m1_p1": "Describe character, background...", 
+        "m1_p1": "Describe character...", 
         "m1_l2": "Situation:", 
-        "m1_sys": "ROLE: Canisian Educator. Analyze student via 4C+1L. Focus on Cura Personalis (Care for the whole person). Use Tables.",
-        
+        "m1_sys": "ROLE: Canisian Educator. Analyze via 4C+1L & UAP.",
         "m2_t": "📙 Lesson Design (IPP)", 
         "m2_l1": "Topic:", 
         "m2_l2": "Goal:", 
-        "m2_sys": "ROLE: IPP Designer. Cycle: Context -> Experience -> Reflection -> Action -> Evaluation. Build 4C+1L. Use Tables.",
-        
+        "m2_sys": "ROLE: IPP Designer. Cycle: Context-Experience-Reflection-Action-Evaluation.",
         "m3_t": "📗 Reflection (Examen)", 
         "m3_l1": "Topic:", 
-        "m3_sys": "ROLE: Spiritual Director. Guide Examen (Loyola style): Gratitude, Grace, Review, Repent, Resolve.",
-
+        "m3_sys": "ROLE: Spiritual Director. Guide Examen.",
         "m4_t": "📘 Academic Paper Assistant", 
         "m4_l1": "Paper Topic:", 
-        "m4_l2": "Main Thesis (Discernment & Competence):", 
-        "m4_p2": "E.g., Technology serves AMDG...",
-        "m4_sys": "ROLE: Jesuit Scholar combining St. Ignatius (Discernment, AMDG) and St. Canisius (Intellect, Clarity). Write a paper that is logically sound AND spiritually discerning. End with Ad Maiorem Dei Gloriam.",
+        "m4_l2": "Thesis:",
+        "m4_p2": "E.g., AI technology must be directed to glorify God...",
+        "m4_cat_lbl": "Select Depth:",
+        "m4_cat_opt": ["Concise (4C Points)", "Standard (Academic Essay)", "Deep (Theological Discernment)"],
+        "m4_prompt_ringkas": "STYLE: Bullet points. FOCUS: Key 4C elements.",
+        "m4_prompt_standar": "STYLE: Academic (Canisius style). FOCUS: Logical arguments + values.",
+        "m4_prompt_mendalam": "STYLE: Philosophical/Theological (Ignatian). FOCUS: Deep discernment.",
     }
 }
 
-# --- 3. LOGIKA WORD PROCESSING (Arial 12, Justify) ---
-
+# --- 4. LOGIKA WORD PROCESSING ---
 def clean_text(text):
     text = text.replace('**', '').replace('__', '')
     text = text.replace('```', '')
@@ -160,7 +176,6 @@ def process_markdown_to_docx(doc, text):
     
     for line in lines:
         stripped = line.strip()
-        
         if stripped.startswith('|') and stripped.endswith('|'):
             cells = [c.strip() for c in stripped.split('|')]
             if len(cells) > 2: cells = cells[1:-1] 
@@ -205,8 +220,8 @@ def process_markdown_to_docx(doc, text):
                     p = doc.add_paragraph(clean_line)
                     p.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
                     if p.runs: p.runs[0].font.name = 'Arial'
-
-    if table_buffer:
+    
+    if table_buffer: # Flush sisa tabel
         rows = len(table_buffer)
         cols = len(table_buffer[0])
         table = doc.add_table(rows=rows, cols=cols)
@@ -226,7 +241,7 @@ def create_docx(content, topic, lang_key):
     font.name = 'Arial'
     font.size = Pt(12)
     
-    header_text = 'MAGIS AI RESULT' if lang_key == 'EN' else 'MAGIS AI - HASIL DISKRESI'
+    header_text = 'MAGIS AI - JESUIT ORDER RESULT'
     h = doc.add_heading(header_text, 0)
     h.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
     for run in h.runs:
@@ -246,7 +261,7 @@ def create_docx(content, topic, lang_key):
     section = doc.sections[0]
     footer = section.footer
     footer_para = footer.paragraphs[0]
-    footer_text = 'Dicetak oleh Magis AI - Kolese Kanisius'
+    footer_text = 'Dicetak oleh Magis AI - Kolese Kanisius (A. Henny Setyawan)'
     f_run = footer_para.add_run(f'\n--- {footer_text} ---')
     f_run.font.name = 'Arial'
     f_run.font.size = Pt(9)
@@ -257,162 +272,202 @@ def create_docx(content, topic, lang_key):
     doc.save(bio)
     return bio
 
-def get_gemini_response(api_key, model_name, system_instruction, user_prompt, tone, lang):
-    if not api_key: return None
+def get_gemini_response(api_key, model_name, system_instruction, user_prompt, tone, lang, core_vals):
+    if not api_key: return "⚠️ Error: API Key Missing"
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name)
         lang_instruction = "Use standard Indonesian." if lang == "ID" else "Use professional English."
+        # Meminta format tabel secara eksplisit
+        format_instruction = "FORMAT: Use Markdown Tables for structured data clearly. Use standard paragraphs."
+        full_sys = f"ROLE: {system_instruction}\n\n{core_vals}\n\nTONE: {tone}\nLANGUAGE: {lang_instruction}\n{format_instruction}"
         
-        # PROMPT UTAMA: 4C + 1L & STYLE IGNATIUS + KANISIUS
-        format_instruction = """
-        FORMAT: Use Markdown Tables for structured data. Use standard paragraphs (narrative flow).
-        CORE VALUES (Integrate these): 
-        - Competence (Academic excellence - Canisius)
-        - Conscience (Moral discernment - Ignatius)
-        - Compassion (Empathy for others)
-        - Commitment (Persevera/Grit)
-        - Leadership (Service/AMDG)
-        - Magis (Striving for the better)
-        - Finding God in All Things
-        """
-        
-        full_sys = f"ROLE: {system_instruction}\nTONE: {tone}\nLANGUAGE: {lang_instruction}\n{format_instruction}"
         response = model.generate_content(f"{full_sys}\n\nTASK: {user_prompt}")
         text = response.text
         if text.startswith("```"): text = text.replace("```markdown", "").replace("```", "")
         return text
     except Exception as e: return f"Error: {str(e)}"
 
-# --- 4. CSS (ULTIMATE CLEAN UI - NO BRANDING) ---
+# --- 5. CSS (THE "MASTERPIECE" THEME) ---
 def inject_custom_css(theme):
     if theme == "Gelap":
-        vars = """
-            --bg-color: #0E1117; 
-            --sidebar-bg: #161B22; 
-            --text-color: #E6EDF3; 
-            --input-bg: #0d1117; 
-            --input-border: #30363D; 
-            --card-bg: #161B22; 
-            --primary-color: #4285F4;
-            --header-color: #FFFFFF;
-        """
+        # DARK MODE (Elegant & Deep)
+        bg_color = "#0E1117"
+        sidebar_bg = "#161B22"
+        text_color = "#E6EDF3"        # Putih Tulang (Nyaman)
+        secondary_text = "#B0B8C4"
+        input_bg = "#0d1117"
+        input_border = "#30363D"
+        card_bg = "#161B22"
+        table_border = "#30363D"
+        table_header_bg = "rgba(66, 133, 244, 0.2)"
+        banner_overlay = "rgba(0, 0, 0, 0.6)"
     else:
-        # CLEAN LIGHT MODE (High Contrast)
-        vars = """
-            --bg-color: #FFFFFF; 
-            --sidebar-bg: #F8F9FA; 
-            --text-color: #000000; 
-            --input-bg: #FFFFFF; 
-            --input-border: #BDC3C7; 
-            --card-bg: #F0F2F6; 
-            --primary-color: #0047AB; 
-            --header-color: #333333;
-        """
+        # LIGHT MODE (Soft & High Contrast)
+        bg_color = "#F3F4F6"          # Soft Porcelain (Abu sangat muda, tidak putih buta)
+        sidebar_bg = "#FFFFFF"        # Putih Bersih
+        text_color = "#111827"        # Hitam Pekat (Charcoal) - SANGAT TERBACA
+        secondary_text = "#4B5563"
+        input_bg = "#FFFFFF"
+        input_border = "#D1D5DB"
+        card_bg = "#FFFFFF"
+        table_border = "#E5E7EB"
+        table_header_bg = "#F9FAFB"
+        banner_overlay = "rgba(0, 0, 0, 0.4)"
 
     st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     
-    :root {{ {vars} }}
+    :root {{ 
+        --bg-color: {bg_color}; 
+        --sidebar-bg: {sidebar_bg};
+        --text-color: {text_color};
+        --secondary-text: {secondary_text};
+        --input-bg: {input_bg};
+        --input-border: {input_border};
+        --card-bg: {card_bg};
+        --table-border: {table_border};
+        --table-header-bg: {table_header_bg};
+        --banner-overlay: {banner_overlay};
+        --primary-color: #2563EB;
+    }}
     
-    /* 1. MENGHILANGKAN SEMUA ELEMEN BAWAAN STREAMLIT (Atas & Bawah) */
-    #MainMenu {{visibility: hidden; display: none;}}
-    footer {{visibility: hidden; display: none;}}
-    header {{visibility: hidden; display: none;}}
-    
-    /* Menghilangkan Toolbar Atas (Github, titik tiga) */
-    [data-testid="stToolbar"] {{visibility: hidden; display: none;}}
-    
-    /* Menghilangkan 'Manage App' di Kanan Bawah */
-    [data-testid="stManageApp"] {{visibility: hidden; display: none;}}
-    
-    /* Menghilangkan Tombol Deploy */
-    .stDeployButton {{visibility: hidden; display: none;}}
-    
-    /* Menghilangkan Garis Dekorasi Warna-warni di Atas */
-    [data-testid="stDecoration"] {{visibility: hidden; display: none;}}
-    
-    /* Menghilangkan Widget Status */
-    [data-testid="stStatusWidget"] {{visibility: hidden; display: none;}}
-    
-    /* 2. Style Dasar App */
-    html, body, .stApp, [data-testid="stAppViewContainer"] {{ 
+    /* 1. RESET & BASE */
+    html, body, .stApp {{ 
         background-color: var(--bg-color) !important; 
+        color: var(--text-color) !important;
         font-family: 'Inter', sans-serif; 
+    }}
+
+    /* 2. TEXT VISIBILITY ENFORCEMENT (AGRESSIVE) */
+    h1, h2, h3, h4, h5, h6, p, li, label, span, div[data-testid="stMarkdownContainer"] p {{
         color: var(--text-color) !important;
     }}
-    
-    h1, h2, h3, h4, h5, h6 {{ color: var(--header-color) !important; }}
-    p, li, span, div, label {{ color: var(--text-color) !important; }}
-    
+
+    /* 3. TOMBOL (EXCEPTION) - Tetap Putih & Gradasi */
+    div.stButton > button {{ 
+        background: linear-gradient(135deg, #2563EB, #10B981) !important; 
+        color: #FFFFFF !important; 
+        border: none; 
+        border-radius: 50px; 
+        padding: 0.6rem 1.8rem; /* Lebih besar sedikit biar enak ditekan */
+        font-weight: 700; 
+        letter-spacing: 0.5px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
+        transition: all 0.2s; 
+    }}
+    div.stButton > button p {{
+        color: #FFFFFF !important;
+    }}
+    div.stButton > button:hover {{ 
+        transform: scale(1.02); 
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2); 
+    }}
+
+    /* 4. SIDEBAR */
     section[data-testid="stSidebar"] {{ 
-        background-color: var(--sidebar-bg); 
-        border-right: 1px solid var(--input-border); 
-        padding-top: 2rem; 
+        background-color: var(--sidebar-bg) !important; 
+        border-right: 1px solid var(--input-border);
     }}
-    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {{
+    section[data-testid="stSidebar"] * {{
         color: var(--text-color) !important;
     }}
-    
+
+    /* 5. INPUT FIELDS */
     .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {{ 
         background-color: var(--input-bg) !important; 
         color: var(--text-color) !important; 
         border: 1px solid var(--input-border) !important; 
         border-radius: 8px; 
     }}
-    ::placeholder {{ color: var(--text-color); opacity: 0.7; }}
-    
-    div.stButton > button {{ 
-        background: linear-gradient(90deg, #4285F4, #34A853); 
-        color: white !important; 
-        border: none; 
-        border-radius: 50px; 
-        font-weight: 600; 
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
-        transition: all 0.2s; 
-    }}
-    div.stButton > button:hover {{ transform: scale(1.02); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }}
-    
+
+    /* 6. RESULT CARD (RATA KANAN KIRI) */
     .result-card {{ 
         background-color: var(--card-bg); 
         border: 1px solid var(--input-border); 
         border-radius: 12px; 
-        padding: 40px; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
-        margin-top: 20px; 
-        text-align: justify; 
-        line-height: 1.8;
+        padding: 40px; /* Padding luas agar lega */
+        box-shadow: 0 2px 5px 0 rgba(0, 0, 0, 0.05); 
+        text-align: justify !important; 
+        line-height: 1.8; /* Jarak antar baris enak dibaca */
+    }}
+    .result-card p {{
+        text-align: justify !important;
+        margin-bottom: 1em;
+    }}
+
+    /* 7. TABEL RAPI (STYLED TABLES) */
+    .result-card table {{
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+        font-size: 0.95em;
+        border-radius: 8px;
+        overflow: hidden; /* Biar border radius ngaruh ke header */
+        border: 1px solid var(--table-border);
+    }}
+    .result-card th {{
+        background-color: var(--table-header-bg);
+        color: var(--text-color) !important;
+        font-weight: bold;
+        padding: 12px 15px;
+        text-align: left;
+        border-bottom: 2px solid var(--table-border);
+    }}
+    .result-card td {{
+        padding: 12px 15px;
+        border-bottom: 1px solid var(--table-border);
         color: var(--text-color) !important;
     }}
-    
-    .result-card h1, .result-card h2, .result-card h3 {{
-        color: var(--primary-color) !important;
-        margin-top: 25px;
-        margin-bottom: 15px;
-        border-bottom: 1px solid var(--input-border);
-        padding-bottom: 5px;
-        text-align: left;
+    .result-card tr:last-of-type td {{
+        border-bottom: none;
     }}
-    
-    table {{ width: 100%; border-collapse: collapse; border: 1px solid var(--input-border); margin: 20px 0; }}
-    th, td {{ padding: 12px; border: 1px solid var(--input-border); text-align: left; color: var(--text-color); }}
-    th {{ background-color: rgba(66, 133, 244, 0.1); font-weight: bold; }}
 
-    .main-title {{ 
-        background: linear-gradient(90deg, #4285F4, #EA4335, #FBBC05, #34A853); 
-        -webkit-background-clip: text; 
-        -webkit-text-fill-color: transparent; 
-        font-weight: 800; 
-        font-size: 3rem; 
-        text-align: center; 
-        margin-bottom: 0.5rem;
-        padding-top: 2rem;
+    /* 8. HEADER BANNER */
+    .main-title-text {{
+        font-weight: 900;
+        font-size: 3.8rem;
+        color: #FFFFFF !important; 
+        text-shadow: 0 2px 15px rgba(0,0,0,0.8); 
     }}
+    .subtitle-text {{
+        color: rgba(255, 255, 255, 0.95) !important;
+        font-size: 1.2rem;
+        font-weight: 500;
+        text-shadow: 0 1px 5px rgba(0,0,0,0.8);
+    }}
+    .title-container {{
+        position: relative;
+        overflow: hidden;
+        padding: 3.5rem 1rem; 
+        margin-bottom: 1.5rem;
+        border-radius: 16px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }}
+    .title-container::before {{
+        content: "";
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background-image: 
+            linear-gradient(var(--banner-overlay), var(--banner-overlay)),
+            url('https://i.imgur.com/wmAE0d7.jpeg');
+        background-size: cover;
+        background-position: center 30%; 
+        z-index: 0;
+    }}
+    .title-content {{
+        position: relative;
+        z-index: 1;
+        text-align: center;
+    }}
+    
+    #MainMenu, footer {{visibility: hidden;}}
+    [data-testid="stDeployButton"] {{display: none;}}
     </style>
     """, unsafe_allow_html=True)
 
-# --- 5. TAMPILAN UI ---
+# --- 6. TAMPILAN UI ---
 with st.sidebar:
     st.markdown("<div style='text-align:center; margin-bottom:20px;'><img src='https://i.imgur.com/UUCgyfV.png' width='90'></div>", unsafe_allow_html=True)
     lang_opt = st.radio("Bahasa", ["Indonesia 🇮🇩", "English 🇺🇸"], horizontal=True, label_visibility="collapsed")
@@ -426,121 +481,154 @@ with st.sidebar:
     tone_idx = st.selectbox(TXT["lbl_tone"], TXT["opt_tone"])
     st.divider()
     
+    # --- AUDIO SETTINGS ---
+    st.markdown(f"### 🔊 {TXT['lbl_voice_set']}")
+    gender_opt = ["Pria", "Wanita"] if L_CODE == "ID" else ["Male", "Female"]
+    sel_gender = st.radio(TXT['lbl_gender'], gender_opt, horizontal=True)
+    sel_speed = st.slider(TXT['lbl_speed'], -50, 50, 0, format="%d%%")
+    st.divider()
+    
     api_key = st.text_input(TXT["lbl_key"], type="password")
-    models = []
+    models = ["gemini-pro", "gemini-1.5-flash"] 
     if api_key:
         try:
             genai.configure(api_key=api_key)
-            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            fetched_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            if fetched_models: models = fetched_models
         except: pass
-    
-    sel_model = st.selectbox(TXT["lbl_model"], models) if models else None
+    sel_model = st.selectbox(TXT["lbl_model"], models)
     
     st.divider()
     menu_sel = st.radio(TXT["lbl_menu"], TXT["menu_opt"])
     menu_idx = TXT["menu_opt"].index(menu_sel)
     
-    # --- CREDIT TITLE ---
+    # CREDIT TITLE
     st.markdown(f"""
-    <div style='margin-top:3rem;text-align:center;font-size:0.7rem;opacity:0.7;line-height:1.5;color:var(--text-color);'>
-    <strong>MAGIS AI v12.2 (ULTIMATE CLEAN)</strong><br>
-    Design by: Albertus Henny Setyawan<br>
+    <div style='margin-top:3rem;text-align:center;font-size:0.75rem;opacity:0.8;line-height:1.6;border-top:1px solid var(--input-border); padding-top:1rem;'>
+    <strong>MAGIS AI v16.0</strong><br>
+    Jesuit Order & UAP Integrated<br>
+    Design by: <strong>Albertus Henny Setyawan</strong><br>
     Kolese Kanisius Jakarta | 2026
     </div>
     """, unsafe_allow_html=True)
 
+# INJECT CSS AFTER THEME SELECTION
 inject_custom_css(THEME_VAL)
 
-st.markdown(f"<div class='main-title'>Magis AI</div><div style='text-align:center;color:grey;margin-bottom:30px;font-style:italic;'>{TXT['title_sub']}</div>", unsafe_allow_html=True)
+# MAIN CONTENT
+st.markdown(f"""
+<div class='title-container'>
+    <div class='title-content'>
+        <h1 class='main-title-text'>MAGIS AI</h1>
+        <div class='subtitle-text'>{TXT['title_sub']}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
+# --- PERINGATAN API KEY ---
 if not api_key:
-    st.info(TXT["key_warning"])
-    st.stop()
+    st.warning(TXT['key_missing_alert'])
 
-# --- INPUT AREA ---
 with st.container():
+    prompt = ""
+    sys_instruction = ""
+    execute = False 
+    
     if menu_idx == 0: 
-        st.markdown(f"<h3 style='color:#4285F4;'>{TXT['m1_t']}</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='color:#4285F4 !important;'>{TXT['m1_t']}</h3>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         in_1 = c1.text_area(TXT['m1_l1'], placeholder=TXT['m1_p1'], height=150)
         in_2 = c2.text_input(TXT['m1_l2'])
         if st.button(TXT['btn_analyze']):
+            execute = True
             if in_1:
                 prompt = f"{TXT['m1_l1']} {in_1} | {TXT['m1_l2']} {in_2}"
-                with st.spinner(TXT['loading']):
-                    res = get_gemini_response(api_key, sel_model, TXT['m1_sys'], prompt, tone_idx, L_CODE)
-                    st.session_state.result_text = res
-                    st.session_state.topic_context = prompt
-            else: st.warning(TXT['empty_warning'])
+                sys_instruction = TXT['m1_sys']
 
     elif menu_idx == 1: 
-        st.markdown(f"<h3 style='color:#FBBC05;'>{TXT['m2_t']}</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='color:#F59E0B !important;'>{TXT['m2_t']}</h3>", unsafe_allow_html=True)
         c1, c2 = st.columns([2, 1])
         in_1 = c1.text_input(TXT['m2_l1'])
         in_2 = c2.selectbox(TXT['m2_l2'], ["1 JP (45')", "2 JP (90')", "Block Project (Project Based)"])
         if st.button(TXT['btn_rpp']):
+            execute = True
             if in_1:
-                prompt = f"Topik Pembelajaran: {in_1} | Durasi: {in_2}"
-                with st.spinner(TXT['loading']):
-                    res = get_gemini_response(api_key, sel_model, TXT['m2_sys'], prompt, tone_idx, L_CODE)
-                    st.session_state.result_text = res
-                    st.session_state.topic_context = prompt
-            else: st.warning(TXT['empty_warning'])
+                prompt = f"Topik: {in_1} | Durasi: {in_2}"
+                sys_instruction = TXT['m2_sys']
 
     elif menu_idx == 2:
-        st.markdown(f"<h3 style='color:#34A853;'>{TXT['m3_t']}</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='color:#10B981 !important;'>{TXT['m3_t']}</h3>", unsafe_allow_html=True)
         in_1 = st.text_area(TXT['m3_l1'], height=100)
         if st.button(TXT['btn_reflect']):
+            execute = True
             if in_1:
                 prompt = f"Bahan Refleksi: {in_1}"
-                with st.spinner(TXT['loading']):
-                    res = get_gemini_response(api_key, sel_model, TXT['m3_sys'], prompt, tone_idx, L_CODE)
-                    st.session_state.result_text = res
-                    st.session_state.topic_context = prompt
-            else: st.warning(TXT['empty_warning'])
+                sys_instruction = TXT['m3_sys']
 
-    elif menu_idx == 3: # MODUL 4: MAKALAH (IGNATIUS & KANISIUS)
-        st.markdown(f"<h3 style='color:#4285F4;'>{TXT['m4_t']}</h3>", unsafe_allow_html=True)
+    elif menu_idx == 3: 
+        st.markdown(f"<h3 style='color:#4285F4 !important;'>{TXT['m4_t']}</h3>", unsafe_allow_html=True)
         in_1 = st.text_input(TXT['m4_l1'])
-        in_2 = st.text_area(TXT['m4_l2'], placeholder=TXT['m4_p2'], height=150)
-        
-        len_opt = st.radio("Target Kedalaman Tulisan:", 
-                           ["Ringkas (Poin 4C)", "Sedang (Standard Makalah)", "Mendalam (Analisis Diskresi Penuh)"], 
-                           horizontal=True)
+        in_2 = st.text_area(TXT['m4_l2'], placeholder=TXT['m4_p2'], height=100)
+        cat_sel = st.radio(TXT['m4_cat_lbl'], TXT['m4_cat_opt'], horizontal=True)
         
         if st.button(TXT['btn_makalah']):
+            execute = True
             if in_1 and in_2:
-                # Prompt Khusus: Gabungan St. Ignatius & St. Kanisius
-                prompt = f"""
-                TOPIK: {in_1}
-                ARGUMEN UTAMA (TESIS): {in_2}
-                TARGET KEDALAMAN: {len_opt}
+                cat_prompt = ""
+                if "Ringkas" in cat_sel or "Concise" in cat_sel:
+                    cat_prompt = TXT['m4_prompt_ringkas']
+                elif "Standar" in cat_sel or "Standard" in cat_sel:
+                    cat_prompt = TXT['m4_prompt_standar']
+                else:
+                    cat_prompt = TXT['m4_prompt_mendalam']
                 
-                INSTRUKSI KHUSUS (JESUIT STYLE):
-                1. **Competence (St. Kanisius):** Sajikan data dan argumen logis yang tak terbantahkan.
-                2. **Conscience (St. Ignatius):** Lakukan DISKRESI dalam pembahasan. Timbang baik-buruk moralnya.
-                3. **Finding God in All Things:** Ajak pembaca menemukan nilai Ilahi dalam topik ini.
-                4. **AMDG:** Tutup dengan bagaimana hal ini memuliakan Tuhan (Ad Maiorem Dei Gloriam).
-                5. Gaya bahasa: Naratif, mengalir, tanpa list berlebihan.
+                prompt = f"TOPIK: {in_1}\nTESIS: {in_2}"
+                sys_instruction = f"""
+                PERAN: Cendekiawan Jesuit.
+                KATEGORI: {cat_sel}.
+                {cat_prompt}
+                TUGAS: Susun makalah sesuai kategori.
                 """
-                with st.spinner(TXT['loading']):
-                    res = get_gemini_response(api_key, sel_model, TXT['m4_sys'], prompt, tone_idx, L_CODE)
-                    st.session_state.result_text = res
-                    st.session_state.topic_context = f"Makalah: {in_1}"
-            else: st.warning(TXT['empty_warning'])
+
+    # --- EKSEKUSI AI ---
+    if execute:
+        if not api_key:
+            st.error(TXT["key_warning"]) 
+        elif prompt and sys_instruction:
+            with st.spinner(TXT['loading']):
+                res = get_gemini_response(api_key, sel_model, sys_instruction, prompt, tone_idx, L_CODE, TXT['core_values'])
+                st.session_state.result_text = res
+                st.session_state.topic_context = prompt
+                
+                # Full Audio
+                full_audio = get_audio(res, L_CODE, sel_gender, sel_speed) 
+                st.session_state.full_audio_bytes = full_audio
 
 # --- OUTPUT AREA ---
 if st.session_state.result_text:
     st.markdown("---")
-    st.markdown(f"<div class='result-card'>{st.session_state.result_text}</div>", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
     
-    docx_file = create_docx(st.session_state.result_text, st.session_state.topic_context, L_CODE)
+    c_res, c_audio = st.columns([3.5, 1])
     
-    st.download_button(
-        label=TXT['btn_dl_word'],
-        data=docx_file.getvalue(),
-        file_name=f"MagisAI_{L_CODE}_JesuitScholar.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        use_container_width=True
-    )
+    with c_res:
+        st.markdown(f"<div class='result-card'>{st.session_state.result_text}</div>", unsafe_allow_html=True)
+    
+    with c_audio:
+        st.markdown(f"<div style='background-color:var(--card-bg); padding:15px; border-radius:10px; border:1px solid var(--input-border); text-align:center;'>", unsafe_allow_html=True)
+        st.markdown(f"#### 🎧 Audio")
+        if st.session_state.full_audio_bytes:
+            st.audio(st.session_state.full_audio_bytes, format='audio/mp3')
+        else:
+            st.caption("Audio unavailable")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        docx_file = create_docx(st.session_state.result_text, st.session_state.topic_context, L_CODE)
+        st.download_button(
+            label=TXT['btn_dl_word'],
+            data=docx_file.getvalue(),
+            file_name=f"MagisAI_{L_CODE}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True
+        )
