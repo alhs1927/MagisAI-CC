@@ -284,7 +284,7 @@ def get_gemini_response(api_key, model_name, system_instruction, user_prompt, to
         return text
     except Exception as e: return f"Error: {str(e)}"
 
-# --- 4. CSS (CLEAN UI & TAMPILAN) ---
+# --- 4. CSS (ULTIMATE CLEAN UI - NO BRANDING) ---
 def inject_custom_css(theme):
     if theme == "Gelap":
         vars = """
@@ -316,11 +316,25 @@ def inject_custom_css(theme):
     
     :root {{ {vars} }}
     
-    /* 1. MENGHILANGKAN TOOLBAR ATAS (GITHUB, MENU, DLL) */
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
-    header {{visibility: hidden;}}
+    /* 1. MENGHILANGKAN SEMUA ELEMEN BAWAAN STREAMLIT (Atas & Bawah) */
+    #MainMenu {{visibility: hidden; display: none;}}
+    footer {{visibility: hidden; display: none;}}
+    header {{visibility: hidden; display: none;}}
+    
+    /* Menghilangkan Toolbar Atas (Github, titik tiga) */
     [data-testid="stToolbar"] {{visibility: hidden; display: none;}}
+    
+    /* Menghilangkan 'Manage App' di Kanan Bawah */
+    [data-testid="stManageApp"] {{visibility: hidden; display: none;}}
+    
+    /* Menghilangkan Tombol Deploy */
+    .stDeployButton {{visibility: hidden; display: none;}}
+    
+    /* Menghilangkan Garis Dekorasi Warna-warni di Atas */
+    [data-testid="stDecoration"] {{visibility: hidden; display: none;}}
+    
+    /* Menghilangkan Widget Status */
+    [data-testid="stStatusWidget"] {{visibility: hidden; display: none;}}
     
     /* 2. Style Dasar App */
     html, body, .stApp, [data-testid="stAppViewContainer"] {{ 
@@ -335,7 +349,7 @@ def inject_custom_css(theme):
     section[data-testid="stSidebar"] {{ 
         background-color: var(--sidebar-bg); 
         border-right: 1px solid var(--input-border); 
-        padding-top: 2rem; /* Tambah padding atas krn header hilang */
+        padding-top: 2rem; 
     }}
     section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {{
         color: var(--text-color) !important;
@@ -429,7 +443,7 @@ with st.sidebar:
     # --- CREDIT TITLE ---
     st.markdown(f"""
     <div style='margin-top:3rem;text-align:center;font-size:0.7rem;opacity:0.7;line-height:1.5;color:var(--text-color);'>
-    <strong>MAGIS AI v12.1 (CLEAN EDITION)</strong><br>
+    <strong>MAGIS AI v12.2 (ULTIMATE CLEAN)</strong><br>
     Design by: Albertus Henny Setyawan<br>
     Kolese Kanisius Jakarta | 2026
     </div>
