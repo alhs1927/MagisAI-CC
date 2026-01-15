@@ -284,7 +284,7 @@ def get_gemini_response(api_key, model_name, system_instruction, user_prompt, to
         return text
     except Exception as e: return f"Error: {str(e)}"
 
-# --- 4. CSS (PERBAIKAN LIGHT MODE & UI) ---
+# --- 4. CSS (CLEAN UI & TAMPILAN) ---
 def inject_custom_css(theme):
     if theme == "Gelap":
         vars = """
@@ -316,7 +316,14 @@ def inject_custom_css(theme):
     
     :root {{ {vars} }}
     
-    html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {{ 
+    /* 1. MENGHILANGKAN TOOLBAR ATAS (GITHUB, MENU, DLL) */
+    #MainMenu {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+    header {{visibility: hidden;}}
+    [data-testid="stToolbar"] {{visibility: hidden; display: none;}}
+    
+    /* 2. Style Dasar App */
+    html, body, .stApp, [data-testid="stAppViewContainer"] {{ 
         background-color: var(--bg-color) !important; 
         font-family: 'Inter', sans-serif; 
         color: var(--text-color) !important;
@@ -328,6 +335,7 @@ def inject_custom_css(theme):
     section[data-testid="stSidebar"] {{ 
         background-color: var(--sidebar-bg); 
         border-right: 1px solid var(--input-border); 
+        padding-top: 2rem; /* Tambah padding atas krn header hilang */
     }}
     section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {{
         color: var(--text-color) !important;
@@ -385,6 +393,7 @@ def inject_custom_css(theme):
         font-size: 3rem; 
         text-align: center; 
         margin-bottom: 0.5rem;
+        padding-top: 2rem;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -411,7 +420,6 @@ with st.sidebar:
             models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         except: pass
     
-    # Dropdown Model (Solusi Error 429)
     sel_model = st.selectbox(TXT["lbl_model"], models) if models else None
     
     st.divider()
@@ -421,7 +429,7 @@ with st.sidebar:
     # --- CREDIT TITLE ---
     st.markdown(f"""
     <div style='margin-top:3rem;text-align:center;font-size:0.7rem;opacity:0.7;line-height:1.5;color:var(--text-color);'>
-    <strong>MAGIS AI v12.0 (JESUIT SCHOLAR)</strong><br>
+    <strong>MAGIS AI v12.1 (CLEAN EDITION)</strong><br>
     Design by: Albertus Henny Setyawan<br>
     Kolese Kanisius Jakarta | 2026
     </div>
